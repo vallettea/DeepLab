@@ -9,3 +9,8 @@ Nothing for now
 make download
 ```
 
+## Learn
+
+```
+make learn
+```
