@@ -20,15 +20,12 @@ var TARGET = "quality";
 var layer_defs = [];
 layer_defs.push({type:'input', out_sx:1, out_sy:1, out_depth: FEATURES.length});
 layer_defs.push({type:'fc', num_neurons:20, activation:'relu'});
-layer_defs.push({type:'fc', num_neurons:20, activation:'sigmoid'});
 layer_defs.push({type:'regression', num_neurons: 1});
 
 var net = new convnetjs.Net();
 net.makeLayers(layer_defs);
 
-// var trainer = new convnetjs.Trainer(net, {method: 'adelta', l2_decay: 0.001, batch_size: 1});
-var trainer = new convnetjs.SGDTrainer(net, {learning_rate:0.01, momentum:0.0, batch_size:1, l2_decay:0.01});
-
+var trainer = new convnetjs.Trainer(net, {method: 'adadelta', l2_decay: 0.001, batch_size: 1});
 
 
 // error window
@@ -86,7 +83,7 @@ fs.createReadStream("../data/whites.csv")
 
 		for(var iters=0; iters<ITER; iters++) {
 
-			dataset.forEach(function(line){
+			lodash.shuffle(dataset).forEach(function(line){
 				var stats = trainer.train(line.x, [line.y]);
 				lossWindow.add(stats.loss);
 
@@ -108,6 +105,21 @@ fs.createReadStream("../data/whites.csv")
 			})
 
 		}
+		console.log("===================================================");
+		console.log("Final evaluation:");
+		expected = [];
+		predicted = [];
+		dataset.forEach(function(line){
+			var predictObject = net.forward(line.x).w;
+			expected.push([line.y]);
+			predicted.push([predictObject[0]]);	
+			
+		});
+		var md = meanDistance(expected, predicted);
+		var mp = meanPearson(expected, predicted);
+		console.log("meanDistance: ", md);
+		console.log("meanPearson: ", mp);
+
 
 
 		console.log("Saving model");
