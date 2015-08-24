@@ -1,0 +1,24 @@
+{
+  "name": "DeepWine",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "ants <contact@ants.builders> (http://ants.builders/)",
+  "license": "ISC",
+  "dependencies": {
+  	"convnetjs": "^0.3.0",
+    "csv-parse": "0.0.6",
+    "csv-parser": "^1.6.0",
+    "es6-shim": "^0.31.2",
+    "fs": "0.0.2",
+    "glob": "^5.0.10",
+    "lodash": "^3.10.1",
+    "path": "^0.11.14",
+    "plotly": "^1.0.2",
+    "simple-statistics": "^1.0.0",
+    "ubique": "^0.5.0"
+  }
+}
