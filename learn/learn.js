@@ -12,6 +12,8 @@ var lodash = require("lodash");
 var meanDistance = require("../validation/meanDistance.js");
 var meanPearson = require("../validation/meanPearson.js");
 
+
+var ITER = 10;
 var FEATURES = ["fixed acidity", "volatile acidity", "citric acid", "residual sugar", "chlorides", "free sulfur dioxide", "total sulfur dioxide", "density", "pH", "sulphates", "alcohol"];
 
 // error window
@@ -58,7 +60,7 @@ var lossWindow = new Window();
 var lines = 0;
 var expected = [];
 var predicted = [];
-
+var dataset = [];
 
 fs.createReadStream("../data/whites.csv")
  	.pipe(csv({separator: ';'}))
@@ -70,25 +72,7 @@ fs.createReadStream("../data/whites.csv")
 		var x = new convnetjs.Vol(features);
 		var y = parseFloat(data.quality);
 
-		var stats = trainer.train(x, y);
-		lossWindow.add(stats.loss);
-
-		var predictObject = net.forward(x).w;
-		expected.push([y]);
-		predicted.push([predictObject["0"]]);	
-		console.log(predictObject["0"])
-
-		lines += 1;
-		if (lines % 100 === 0){
-			console.log("loss", lossWindow.get_average())
-			
-			var md = meanDistance(expected, predicted);
-			var mp = meanPearson(expected, predicted);
-			expected = [];
-			predicted = [];
-			console.log("meanDistance: ", md);
-			console.log("meanPearson: ", mp);
-		}
+		dataset.push({x:x, y:y});
 
 
  	})
@@ -96,6 +80,34 @@ fs.createReadStream("../data/whites.csv")
   		console.log(err.message);
 	})
 	.on("end", function(){
+
+		for(var iters=0; iters<ITER; iters++) {
+
+			dataset.forEach(function(line){
+				var stats = trainer.train(line.x, line.y);
+				lossWindow.add(stats.loss);
+
+				var predictObject = net.forward(line.x).w;
+				expected.push([line.y]);
+				predicted.push([predictObject["0"]]);	
+				console.log(predictObject["0"])
+
+				lines += 1;
+				if (lines % 100 === 0){
+					console.log("loss", lossWindow.get_average())
+					
+					var md = meanDistance(expected, predicted);
+					var mp = meanPearson(expected, predicted);
+					expected = [];
+					predicted = [];
+					console.log("meanDistance: ", md);
+					console.log("meanPearson: ", mp);
+				}
+			})
+
+		}
+
+
 		console.log("Saving model");
 		var modelJson = net.toJSON();
 		var model = "../data/model.json"
