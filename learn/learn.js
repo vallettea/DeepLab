@@ -13,8 +13,20 @@ var meanDistance = require("../validation/meanDistance.js");
 var meanPearson = require("../validation/meanPearson.js");
 
 
-var ITER = 30;
+var ITER = 20;
 var FEATURES = ["fixed acidity", "volatile acidity", "citric acid", "residual sugar", "chlorides", "free sulfur dioxide", "total sulfur dioxide", "density", "pH", "sulphates", "alcohol"];
+var TARGET = "quality";
+
+var layer_defs = [];
+layer_defs.push({type:'input', out_sx:1, out_sy:1, out_depth: FEATURES.length});
+layer_defs.push({type:'fc', num_neurons:20, activation:'relu'});
+layer_defs.push({type:'regression', num_neurons: 1});
+
+var net = new convnetjs.Net();
+net.makeLayers(layer_defs);
+
+var trainer = new convnetjs.Trainer(net, {method: 'adadelta', l2_decay: 0.001, batch_size: 1});
+
 
 // error window
 var Window = function(size, minsize) {
@@ -43,7 +55,6 @@ Window.prototype = {
     }
 }
 
-
 var layer_defs = [];
 layer_defs.push({type:'input', out_sx:1, out_sy:1, out_depth: FEATURES.length});
 layer_defs.push({type:'fc', num_neurons: 10, activation:'relu'});
@@ -66,6 +77,9 @@ var expected = [];
 var predicted = [];
 var dataset = [];
 
+console.log('READING FILE');
+
+
 fs.createReadStream("../data/whites.csv")
  	.pipe(csv({separator: ';'}))
  	.on('data', function(data) {
@@ -74,7 +88,7 @@ fs.createReadStream("../data/whites.csv")
 			return parseFloat(data[feature]);
 		});
 		var x = new convnetjs.Vol(features);
-		var y = parseFloat(data.quality);
+		var y = parseFloat(data[TARGET]);
 
 		dataset.push({x:x, y:y});
 
@@ -84,35 +98,59 @@ fs.createReadStream("../data/whites.csv")
   		console.log(err.message);
 	})
 	.on("end", function(){
+		console.log('LEARNING');
+		var start = Date.now();
 
 		for(var iters=0; iters<ITER; iters++) {
+			console.log('ITER', iters+1);
 
-			dataset.forEach(function(line){
+			lodash.shuffle(dataset).forEach(function(line){
 				var stats = trainer.train(line.x, [line.y]);
 				lossWindow.add(stats.loss);
 
 				var predictObject = net.forward(line.x).w;
 				expected.push([line.y]);
-				predicted.push([predictObject["0"]]);	
-				// console.log(predictObject["0"])
+
+				predicted.push([predictObject[0]]);
 
 				lines += 1;
 				if (lines % 1000 === 0){
-					console.log("loss", lossWindow.get_average())
-					
 					var md = meanDistance(expected, predicted);
 					var mp = meanPearson(expected, predicted);
 					expected = [];
 					predicted = [];
-					console.log("meanDistance: ", md);
-					console.log("meanPearson: ", mp);
+					// console.log(lines, "lines --> meanDistance: ", md, "meanPearson: ", mp, "loss", lossWindow.get_average());
+					
 				}
 			})
 
 		}
 
+		var end = Date.now();
+		console.log('Training time for', ITER, 'iterations', (end - start)/1000, 's');
 
-		console.log("Saving model");
+		console.log("===================================================");
+		console.log("FINAL EVALUATION:");
+
+		start = Date.now();
+
+		expected = [];
+		predicted = [];
+		dataset.forEach(function(line){
+			var predictObject = net.forward(line.x).w;
+			expected.push([line.y]);
+			predicted.push([predictObject[0]]);	
+			
+		});
+		var md = meanDistance(expected, predicted);
+		var mp = meanPearson(expected, predicted);
+		console.log("meanDistance: ", md);
+		console.log("meanPearson: ", mp);
+
+		var end = Date.now();
+		console.log('Evaluating time', (end - start)/1000, 's');
+
+		console.log("SAVING MODEL");
 		var modelJson = net.toJSON();
 		var model = "../data/model.json"
 		var modelPath = path.join(__dirname, model);
