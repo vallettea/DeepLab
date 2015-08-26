@@ -9,24 +9,13 @@ var csv = require('csv-parser');
 var convnetjs = require("convnetjs");
 var lodash = require("lodash");
 
+var getReducedModel = require('../modelReduction/getReducedModel.js');
 var meanDistance = require("../validation/meanDistance.js");
 var meanPearson = require("../validation/meanPearson.js");
 
-
+var MODEL_SIZE = 11; // 11 is full size
 var ITER = 20;
 var FEATURES = ["fixed acidity", "volatile acidity", "citric acid", "residual sugar", "chlorides", "free sulfur dioxide", "total sulfur dioxide", "density", "pH", "sulphates", "alcohol"];
-var TARGET = "quality";
-
-var layer_defs = [];
-layer_defs.push({type:'input', out_sx:1, out_sy:1, out_depth: FEATURES.length});
-layer_defs.push({type:'fc', num_neurons:20, activation:'relu'});
-layer_defs.push({type:'regression', num_neurons: 1});
-
-var net = new convnetjs.Net();
-net.makeLayers(layer_defs);
-
-var trainer = new convnetjs.Trainer(net, {method: 'adadelta', l2_decay: 0.001, batch_size: 1});
-
 
 // error window
 var Window = function(size, minsize) {
@@ -55,8 +44,9 @@ Window.prototype = {
     }
 }
 
+
 var layer_defs = [];
-layer_defs.push({type:'input', out_sx:1, out_sy:1, out_depth: FEATURES.length});
+layer_defs.push({type:'input', out_sx:1, out_sy:1, out_depth: MODEL_SIZE});
 layer_defs.push({type:'fc', num_neurons: 10, activation:'relu'});
 // layer_defs.push({type:'fc', num_neurons:10, activation:'sigmoid', drop_prob: 0.5});
 // layer_defs.push({type:'fc', num_neurons:10, activation:'sigmoid', drop_prob: 0.5});
@@ -73,24 +63,32 @@ var trainer = new convnetjs.Trainer(net, {method: 'adadelta', l2_decay: 0.001, l
 
 var lossWindow = new Window();
 var lines = 0;
-var expected = [];
-var predicted = [];
+var featureMatrix = [];
+var obsVector = [];
+
+var expectedVector = []; // same as obsVector, but with [] for each item
+var predictedVector = [];
 var dataset = [];
 
 console.log('READING FILE');
 
-
 fs.createReadStream("../data/whites.csv")
  	.pipe(csv({separator: ';'}))
  	.on('data', function(data) {
-
- 		var features = FEATURES.map(function(feature){
+ 		//  Creation of feature Matrix and observations vector
+ 		featureMatrix.push(FEATURES.map(function(feature){
 			return parseFloat(data[feature]);
-		});
-		var x = new convnetjs.Vol(features);
-		var y = parseFloat(data[TARGET]);
+		}));
 
-		dataset.push({x:x, y:y});
+		obsVector.push(parseFloat(data['quality']));
+
+ 	// 	var features = FEATURES.map(function(feature){
+		// 	return parseFloat(data[feature]);
+		// });
+		// var x = new convnetjs.Vol(features);
+		// var y = parseFloat(data.quality);
+
+		// dataset.push({x:x, y:y});
 
 
  	})
@@ -98,7 +96,26 @@ fs.createReadStream("../data/whites.csv")
   		console.log(err.message);
 	})
 	.on("end", function(){
+
+		// Model reduction
+		var reduction = getReducedModel(featureMatrix, MODEL_SIZE);
+		var reducedMatrix = reduction.projection;
+
+		console.log("REDUCTION COMPLETE");
+		console.log('model length', reduction.eigenvectors.length);
+		console.log('variance explained', reduction.explainedVariance);
+
+		// format to dataSet
+		var dataset = reducedMatrix.to2DArray().map(function(features, index){
+			return {
+				x: new convnetjs.Vol(features),
+				y: obsVector[index]
+			};
+		});
+
+		// Learning
 		console.log('LEARNING');
+
 		var start = Date.now();
 
 		for(var iters=0; iters<ITER; iters++) {
@@ -106,53 +123,54 @@ fs.createReadStream("../data/whites.csv")
 
 			lodash.shuffle(dataset).forEach(function(line){
 				var stats = trainer.train(line.x, [line.y]);
+
 				lossWindow.add(stats.loss);
 
 				var predictObject = net.forward(line.x).w;
-				expected.push([line.y]);
+				expectedVector.push([line.y]);
+				predictedVector.push([predictObject[0]]);
 
-				predicted.push([predictObject[0]]);
+				lines ++;
 
-				lines += 1;
 				if (lines % 1000 === 0){
-					var md = meanDistance(expected, predicted);
-					var mp = meanPearson(expected, predicted);
-					expected = [];
-					predicted = [];
+					var md = meanDistance(expectedVector, predictedVector);
+					var mp = meanPearson(expectedVector, predictedVector);
+					expectedVector = [];
+					predictedVector = [];
 					// console.log(lines, "lines --> meanDistance: ", md, "meanPearson: ", mp, "loss", lossWindow.get_average());
 					
 				}
-			})
-
+			});
 		}
 
 		var end = Date.now();
 		console.log('Training time for', ITER, 'iterations', (end - start)/1000, 's');
 
 		console.log("===================================================");
-		console.log("FINAL EVALUATION:");
+		console.log("FINAL EVALUATION");
+		expectedVector = [];
+		predictedVector = [];
 
 		start = Date.now();
 
-		expected = [];
-		predicted = [];
 		dataset.forEach(function(line){
 			var predictObject = net.forward(line.x).w;
-			expected.push([line.y]);
-			predicted.push([predictObject[0]]);	
+			expectedVector.push([line.y]);
+			predictedVector.push([predictObject[0]]);	
 			
 		});
-		var md = meanDistance(expected, predicted);
-		var mp = meanPearson(expected, predicted);
+		var md = meanDistance(expectedVector, predictedVector);
+		var mp = meanPearson(expectedVector, predictedVector);
 		console.log("meanDistance: ", md);
 		console.log("meanPearson: ", mp);
 
-		var end = Date.now();
-		console.log('Evaluating time', (end - start)/1000, 's');
+		end = Date.now();
+		console.log('Evaluation time', (end - start)/1000, 's');
+
 
 		console.log("SAVING MODEL");
 		var modelJson = net.toJSON();
-		var model = "../data/model.json"
+		var model = "../data/modelWithReduction.json"
 		var modelPath = path.join(__dirname, model);
 		fs.writeFile(modelPath, JSON.stringify(modelJson), function(err) {
 			if (err) console.log(err)

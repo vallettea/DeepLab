@@ -13,10 +13,10 @@ module.exports = function(matrix, k){
 		return eigenvectors[i];
 	});
 
-	var reducedExplainedVariance = ubique.sum(pca.getExplainedVariance().slice(0, k));
+	var explainedVariance = pca.getExplainedVariance();
+	var reducedExplainedVariance = ubique.sum(explainedVariance.slice(0, k));
 
-	// console.log('reduced eigenvectors', reducedEigenvectors);
-	// console.log('reduced explainedVariance', reducedExplainedVariance);
+	console.log('explainedVariance', explainedVariance);
 
 	return {
 		eigenvectors: reducedEigenvectors,
