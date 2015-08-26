@@ -13,7 +13,7 @@ var meanDistance = require("../validation/meanDistance.js");
 var meanPearson = require("../validation/meanPearson.js");
 
 
-var ITER = 10;
+var ITER = 30;
 var FEATURES = ["fixed acidity", "volatile acidity", "citric acid", "residual sugar", "chlorides", "free sulfur dioxide", "total sulfur dioxide", "density", "pH", "sulphates", "alcohol"];
 
 // error window
@@ -46,15 +46,19 @@ Window.prototype = {
 
 var layer_defs = [];
 layer_defs.push({type:'input', out_sx:1, out_sy:1, out_depth: FEATURES.length});
-layer_defs.push({type:'fc', num_neurons:20, activation:'relu'});
-// layer_defs.push({type:'fc', num_neurons:20, activation:'sigmoid', drop_prob: 0.5});
-// layer_defs.push({type:'fc', num_neurons:20, activation:'relu'});
+layer_defs.push({type:'fc', num_neurons: 10, activation:'relu'});
+// layer_defs.push({type:'fc', num_neurons:10, activation:'sigmoid', drop_prob: 0.5});
+// layer_defs.push({type:'fc', num_neurons:10, activation:'sigmoid', drop_prob: 0.5});
+// layer_defs.push({type:'fc', num_neurons:10, activation:'sigmoid', drop_prob: 0.5});
+// layer_defs.push({type:'fc', num_neurons:10, activation:'relu'});
+// layer_defs.push({type:'fc', num_neurons:10, activation:'relu'});
 layer_defs.push({type:'regression', num_neurons: 1});
 
 var net = new convnetjs.Net();
 net.makeLayers(layer_defs);
 
-var trainer = new convnetjs.Trainer(net, {method: 'adelta', l2_decay: 0.001, batch_size: 1});
+// var trainer = new convnetjs.Trainer(net, {method: 'adagrad', l2_decay: 0.001, l1_decay: 0.001, batch_size: 1});
+var trainer = new convnetjs.Trainer(net, {method: 'adadelta', l2_decay: 0.001, l1_decay: 0.001, batch_size: 1});
 
 var lossWindow = new Window();
 var lines = 0;
@@ -84,16 +88,16 @@ fs.createReadStream("../data/whites.csv")
 		for(var iters=0; iters<ITER; iters++) {
 
 			dataset.forEach(function(line){
-				var stats = trainer.train(line.x, line.y);
+				var stats = trainer.train(line.x, [line.y]);
 				lossWindow.add(stats.loss);
 
 				var predictObject = net.forward(line.x).w;
 				expected.push([line.y]);
 				predicted.push([predictObject["0"]]);	
-				console.log(predictObject["0"])
+				// console.log(predictObject["0"])
 
 				lines += 1;
-				if (lines % 100 === 0){
+				if (lines % 1000 === 0){
 					console.log("loss", lossWindow.get_average())
 					
 					var md = meanDistance(expected, predicted);
