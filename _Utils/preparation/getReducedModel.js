@@ -3,6 +3,14 @@
 var PCA = require('ml-pca');
 var ubique = require('ubique');
 
+/*
+
+This function perfoms a PCA along with a model reduction
+
+*/
+
+
+
 module.exports = function(matrix, k){
 
 	// normalization is done directly by ml-pca
