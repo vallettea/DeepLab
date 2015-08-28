@@ -14,16 +14,11 @@ var meanPearson = require("../validation/meanPearson.js");
 
 
 var ITER = 20;
+var L1_DEPTH = 4; 
+var OUT_DEPTH = 1; 
+
 var FEATURES = ["fixed acidity", "volatile acidity", "citric acid", "residual sugar", "chlorides", "free sulfur dioxide", "total sulfur dioxide", "density", "pH", "sulphates", "alcohol"];
 var TARGET = "quality";
-
-var layer_defs = [];
-layer_defs.push({type:'input', out_sx:1, out_sy:1, out_depth: FEATURES.length});
-layer_defs.push({type:'fc', num_neurons:20, activation:'relu'});
-layer_defs.push({type:'regression', num_neurons: 1});
-
-var net = new convnetjs.Net();
-net.makeLayers(layer_defs);
 
 var trainer = new convnetjs.Trainer(net, {method: 'adadelta', l2_decay: 0.001, batch_size: 1});
 
@@ -57,13 +52,13 @@ Window.prototype = {
 
 var layer_defs = [];
 layer_defs.push({type:'input', out_sx:1, out_sy:1, out_depth: FEATURES.length});
-layer_defs.push({type:'fc', num_neurons: 10, activation:'relu'});
+layer_defs.push({type:'fc', num_neurons: L1_DEPTH, activation:'sigmoid'});
 // layer_defs.push({type:'fc', num_neurons:10, activation:'sigmoid', drop_prob: 0.5});
 // layer_defs.push({type:'fc', num_neurons:10, activation:'sigmoid', drop_prob: 0.5});
 // layer_defs.push({type:'fc', num_neurons:10, activation:'sigmoid', drop_prob: 0.5});
 // layer_defs.push({type:'fc', num_neurons:10, activation:'relu'});
 // layer_defs.push({type:'fc', num_neurons:10, activation:'relu'});
-layer_defs.push({type:'regression', num_neurons: 1});
+layer_defs.push({type:'regression', num_neurons: OUT_DEPTH});
 
 var net = new convnetjs.Net();
 net.makeLayers(layer_defs);
@@ -119,6 +114,9 @@ fs.createReadStream("../data/whites.csv")
 					var mp = meanPearson(expected, predicted);
 					expected = [];
 					predicted = [];
+
+					console.log('gradients', line.x.dw);
+
 					// console.log(lines, "lines --> meanDistance: ", md, "meanPearson: ", mp, "loss", lossWindow.get_average());
 					
 				}
