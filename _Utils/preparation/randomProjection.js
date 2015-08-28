@@ -10,22 +10,30 @@ This is to be used with the MLP method on categorical inputs as explained in htt
 
 */
 
-module.exports = function(dataAttributes, dimension){
+function onItem(attribute, dimension){
+
+	var projection = ubique.rand(1, dimension)[0]; // ubique.rand() only output matrices ...
+		
+	// Centering
+	projection = ubique.plus(projection, -ubique.mean(projection));
+	// Scaling
+	projection = ubique.times(projection, 1/ubique.std(projection));
+
+	return projection;
+}
+
+function onList(attributes, dimension){
 
 	var projections = dataAttributes.map(function(attribute){
-		
-		var projection = ubique.rand(1, dimension)[0]; // ubique.rand() only output matrices ...
-		
-		// Centering
-		projection = ubique.plus(projection, -ubique.mean(projection));
-		// Scaling
-		projection = ubique.times(projection, 1/ubique.std(projection));
-
-		return projection;
+		return onItem(attribute, dimension);
 	});
 
 	console.log('Results of random projection', projections);
 
-	return projections;
+	return projections
+}
 
+module.exports = {
+	onItem: onItem,
+	onList: onList
 }
