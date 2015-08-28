@@ -9,8 +9,8 @@ var csv = require('csv-parser');
 var convnetjs = require("convnetjs");
 var lodash = require("lodash");
 
-var meanDistance = require("../validation/meanDistance.js");
-var meanPearson = require("../validation/meanPearson.js");
+var meanDistance = require("../../_Utils/validation/meanDistance.js");
+var meanPearson = require("../../_Utils/validation/meanPearson.js");
 
 
 var ITER = 20;
@@ -115,7 +115,7 @@ fs.createReadStream("../data/whites.csv")
 					expected = [];
 					predicted = [];
 
-					console.log('gradients', line.x.dw);
+					// console.log('gradients', line.x.dw);
 
 					// console.log(lines, "lines --> meanDistance: ", md, "meanPearson: ", mp, "loss", lossWindow.get_average());
 					
