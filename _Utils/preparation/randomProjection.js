@@ -10,7 +10,7 @@ This is to be used with the MLP method on categorical inputs as explained in htt
 
 */
 
-function onItem(attribute, dimension){
+function onItem(dimension){
 
 	var projection = ubique.rand(1, dimension)[0]; // ubique.rand() only output matrices ...
 		
@@ -30,7 +30,7 @@ function onList(attributes, dimension){
 
 	console.log('Results of random projection', projections);
 
-	return projections
+	return projections;
 }
 
 module.exports = {
