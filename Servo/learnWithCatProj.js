@@ -13,12 +13,15 @@ var ubique = require("ubique");
 var meanDistance = require("../_Utils/validation/meanDistance.js");
 var meanPearson = require("../_Utils/validation/meanPearson.js");
 
+var randomProjection = require("../_Utils/preparation/randomProjection.js");
+
 
 var ITER = 100;
+var FEATURES = ["pgain", "vgain", "motor", "screw"];
 var CONTINUOUS_FEATURES = ["pgain", "vgain"];
 var CATEGORICAL_FEATURES = ["motor", "screw"];
 var TARGET = "class";
-
+var PROJ_DIM = 4;
 
 
 // error window
@@ -54,48 +57,62 @@ var lines = 0;
 var expected = [];
 var predicted = [];
 var dataset = [];
-var catToVec = {}; // catToVec["screw"]["A"] -> [1, 0, 0]
+var catMap = new Map(); // Map (categoricalFeatureName -> Map(featureAttribute -> []))
 CATEGORICAL_FEATURES.forEach(function(featureName){
-	catToVec[featureName] = {};
+	catMap.set(featureName, new Map());
 });
 
 console.log('READING FILE');
+
+function prepareVolume(line){
+	var continuous = line.continuous; // list
+	var categorical = line.categorical; // object
+	var target = line.target;
+
+	var features = [continuous];
+
+	Object.keys(categorical).forEach(function(featureName){
+		features.push(categorical[featureName].projection);
+	});
+
+	return new convnetjs.Vol(lodash.flattenDeep(features)); // features is now of dimension inputSize, here -> 100
+}
 
 fs.createReadStream("data/servo.csv")
  	.pipe(csv({separator: ",", headers: ["motor", "screw", "pgain", "vgain", "class"]}))
  	.on('data', function(data) {
  		
-
  		var continuous_features = CONTINUOUS_FEATURES.map(function(feature){
 			return parseFloat(data[feature]);
 		});
 
-		var categorical_features = CATEGORICAL_FEATURES.map(function(feature){
-			return data[feature];
-		});
+		var categorical_features = {};
 
-		CATEGORICAL_FEATURES.forEach(function(feature){
-			if(!catToVec[feature][data[feature]]) {
-				// find element 
-				var presents = Object.keys(catToVec[feature])
-				if (presents.length > 0) {
-					// if elements are present push a col
-					presents.forEach(function(p){
-						catToVec[feature][p].push(0);
-					});
-					var l = catToVec[feature][presents[0]].length;
-					catToVec[feature][data[feature]] = ubique.zeros(1, l - 1)[0].concat(1);
-				}
-				else
-					catToVec[feature][data[feature]] = [1];
+		catMap.forEach(function(toProjMap, featureName){
+
+			var attribute = data[featureName];
+
+			if (!toProjMap.has(attribute)) {
+				
+				// project attribute
+				var projection = randomProjection.onItem(PROJ_DIM);
+				// update Maps
+				toProjMap.set(attribute, projection);
 			}
+			
+			categorical_features[featureName] = {
+				attribute: attribute,
+				projection: toProjMap.get(attribute)
+			};
+			
 		});
-
-		// var x = new convnetjs.Vol(features);
 		var y = parseFloat(data[TARGET]);
 
-		dataset.push({continuous_features: continuous_features, categorical_features:categorical_features, target:y});
-
+		dataset.push({
+			continuous: continuous_features, // list
+			categorical: categorical_features, // object
+			target: y
+		});
 
  	})
  	.on('error', function(err){
@@ -103,32 +120,15 @@ fs.createReadStream("data/servo.csv")
 	})
 	.on("end", function(){
 		
-		var vectCategoriesSize = Object.keys(catToVec)
-			.map(function(feature){
-				return Object.keys(catToVec[feature]).length
-			})
-			.reduce(function(a, b) {
-				return a + b;
-			});
+		var inputSize = CONTINUOUS_FEATURES.length + CATEGORICAL_FEATURES.length * PROJ_DIM;
 
 		var layer_defs = [];
-		layer_defs.push({type:'input', out_sx:1, out_sy:1, out_depth: CONTINUOUS_FEATURES.length + vectCategoriesSize});
+		layer_defs.push({type:'input', out_sx:1, out_sy:1, out_depth: inputSize});
 		layer_defs.push({type:'fc', num_neurons:20, activation:'relu'});
 		layer_defs.push({type:'regression', num_neurons: 1});
 
 		var net = new convnetjs.Net();
 		net.makeLayers(layer_defs);
-
-
-		var dataset2 = dataset.map(function(data){
-			var catVec = []
-			CATEGORICAL_FEATURES.forEach(function(feature, index){
-				catVec = catVec.concat(catToVec[feature][data.categorical_features[index]]);
-			})
-			var tot = data.continuous_features.concat(catVec);
-
-			return {x: new convnetjs.Vol(tot), y: data.target}
-		})
 
 		var trainer = new convnetjs.Trainer(net, {method: 'adadelta', l2_decay: 0.001, batch_size: 1});
 
@@ -138,22 +138,52 @@ fs.createReadStream("data/servo.csv")
 		for(var iters=0; iters<ITER; iters++) {
 			// console.log('ITER', iters+1);
 
-			lodash.shuffle(dataset2).forEach(function(line){
+			lodash.shuffle(dataset).forEach(function(line){
 
+				var features = prepareVolume(line);
+				var categorical = line.categorical; // needed because we need to access the projections to update them
 
-				var stats = trainer.train(line.x, [line.y]);
+				// make a train run on current line
+				var stats = trainer.train(features, [line.target]);
 				lossWindow.add(stats.loss);
 
-				var predictObject = net.forward(line.x).w;
-				expected.push([line.y]);
-				predicted.push([predictObject[0]]);	
+				var predictObject = net.forward(features).w;
+
+				var dW = {};
+				
+				CATEGORICAL_FEATURES.forEach(function(featureName, index){
+					var grad = [];
+					var toProjMap = catMap.get(featureName);
+					var attribute = categorical[featureName].attribute;
+
+					// output the gradients as vectors, because convNetJS output is a weird monster...
+					for (var i = 0; i<PROJ_DIM; i++){
+						var I = CONTINUOUS_FEATURES.length + (index * PROJ_DIM) + i;
+						grad.push(features.dw[I]);
+					}
+
+					// console.log('attribute', featureName, attribute);
+					// console.log('before', toProjMap.get(attribute));
+
+					// update the projections of categorical attributes
+					var updatedProjection = ubique.plus(toProjMap.get(attribute), grad);
+					toProjMap.set(attribute, updatedProjection);
+
+					// console.log('after', toProjMap.get(attribute));
+
+				});
+
+
+				expected.push([line.target]);
+				predicted.push([predictObject[0]]);
 
 				lines += 1;
 				if (lines % 1000 === 0){
-					console.log("loss", lossWindow.get_average())
+					console.log("loss", lossWindow.get_average());
 					
 					var md = meanDistance(expected, predicted);
 					var mp = meanPearson(expected, predicted);
+
 					expected = [];
 					predicted = [];
 					console.log("meanDistance: ", md);
@@ -170,9 +200,11 @@ fs.createReadStream("data/servo.csv")
 		console.log("FINAL EVALUATION");
 		expected = [];
 		predicted = [];
-		dataset2.forEach(function(line){
-			var predictObject = net.forward(line.x).w;
-			expected.push([line.y]);
+		dataset.forEach(function(line){
+			var features = prepareVolume(line);
+
+			var predictObject = net.forward(features).w;
+			expected.push([line.target]);
 			predicted.push([predictObject[0]]);	
 			
 		});
