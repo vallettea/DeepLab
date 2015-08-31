@@ -23,8 +23,6 @@ var PROJ_DIM = 4;
 
 
 var lines = 0;
-var expected = [];
-var predicted = [];
 var dataset = [];
 var catMap = new Map(); // Map (categoricalFeatureName -> Map(featureAttribute -> []))
 CATEGORICAL_FEATURES.forEach(function(featureName){
