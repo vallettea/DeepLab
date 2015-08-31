@@ -7,51 +7,21 @@ var path = require('path');
 var glob = require("glob");
 var csv = require('csv-parser');
 var convnetjs = require("convnetjs");
+var cnnutil = require("convnetjs/build/util");
 var lodash = require("lodash");
 var ubique = require("ubique");
 
-var meanDistance = require("../_Utils/validation/meanDistance.js");
-var meanPearson = require("../_Utils/validation/meanPearson.js");
 
 var randomProjection = require("../_Utils/preparation/randomProjection.js");
 
 
-var ITER = 100;
-var CONTINUOUS_FEATURES = ["pgain", "vgain"];
-var CATEGORICAL_FEATURES = ["motor", "screw"];
-var TARGET = "class";
+var ITER = 10;
+var CONTINUOUS_FEATURES = ["age"];
+var CATEGORICAL_FEATURES = ["pclass","embarked","home.dest","room","sex"];
+var TARGET = "survived";
 var PROJ_DIM = 4;
 
 
-// error window
-var Window = function(size, minsize) {
-    this.v = [];
-    this.size = typeof(size)==='undefined' ? 100 : size;
-    this.minsize = typeof(minsize)==='undefined' ? 10 : minsize;
-    this.sum = 0;
-  }
-
-Window.prototype = {
-    add: function(x) {
-      this.v.push(x);
-      this.sum += x;
-      if(this.v.length>this.size) {
-        var xold = this.v.shift();
-        this.sum -= xold;
-      }
-    },
-    get_average: function() {
-      if(this.v.length < this.minsize) return -1;
-      else return this.sum/this.v.length;
-    },
-    reset: function(x) {
-      this.v = [];
-      this.sum = 0;
-    }
-}
-
-
-var lossWindow = new Window();
 var lines = 0;
 var expected = [];
 var predicted = [];
@@ -73,12 +43,11 @@ function prepareVolume(line){
 	Object.keys(categorical).forEach(function(featureName){
 		features.push(categorical[featureName].projection);
 	});
-
 	return new convnetjs.Vol(lodash.flattenDeep(features)); // features is now of dimension inputSize, here -> 100
 }
 
-fs.createReadStream("data/servo.csv")
- 	.pipe(csv({separator: ",", headers: ["motor", "screw", "pgain", "vgain", "class"]}))
+fs.createReadStream("data/titanic.csv")
+ 	.pipe(csv({separator: ","}))
  	.on('data', function(data) {
  		
  		var continuous_features = CONTINUOUS_FEATURES.map(function(feature){
@@ -105,7 +74,7 @@ fs.createReadStream("data/servo.csv")
 			};
 			
 		});
-		var y = parseFloat(data[TARGET]);
+		var y = parseInt(data[TARGET]);
 
 		dataset.push({
 			continuous: continuous_features, // list
@@ -124,12 +93,15 @@ fs.createReadStream("data/servo.csv")
 		var layer_defs = [];
 		layer_defs.push({type:'input', out_sx:1, out_sy:1, out_depth: inputSize});
 		layer_defs.push({type:'fc', num_neurons:20, activation:'relu'});
-		layer_defs.push({type:'regression', num_neurons: 1});
+		layer_defs.push({type:'softmax', num_neurons: 2});
 
 		var net = new convnetjs.Net();
 		net.makeLayers(layer_defs);
 
 		var trainer = new convnetjs.Trainer(net, {method: 'adadelta', l2_decay: 0.001, batch_size: 1});
+		var trainAccWindow = new cnnutil.Window(100);
+		var lossWindow = new cnnutil.Window(100);
+		var f2t = cnnutil.f2t;
 
 		console.log('LEARNING');
 		var start = Date.now();
@@ -143,10 +115,9 @@ fs.createReadStream("data/servo.csv")
 				var categorical = line.categorical; // needed because we need to access the projections to update them
 
 				// make a train run on current line
-				var stats = trainer.train(features, [line.target]);
-				lossWindow.add(stats.loss);
-
-				var predictObject = net.forward(features).w;
+				var stats = trainer.train(features, line.target);
+				// console.log(stats);
+				lossWindow.add(stats.cost_loss);
 
 				var dW = {};
 				
@@ -172,21 +143,17 @@ fs.createReadStream("data/servo.csv")
 
 				});
 
-
-				expected.push([line.target]);
-				predicted.push([predictObject[0]]);
+				var yhat = net.getPrediction();
+				var predictObject = net.forward(features, false);
+				console.log(yhat, line.target, predictObject)
+				var train_acc = yhat === line.target ? 1.0 : 0.0;
+				trainAccWindow.add(train_acc);
+				
 
 				lines += 1;
 				if (lines % 1000 === 0){
-					console.log("loss", lossWindow.get_average());
-					
-					var md = meanDistance(expected, predicted);
-					var mp = meanPearson(expected, predicted);
-
-					expected = [];
-					predicted = [];
-					console.log("meanDistance: ", md);
-					console.log("meanPearson: ", mp);
+					console.log('Training accuracy: ' + f2t(trainAccWindow.get_average()));
+					console.log("loss", lossWindow.get_average())
 				}
 			})
 
@@ -197,21 +164,19 @@ fs.createReadStream("data/servo.csv")
 
 		console.log("===================================================");
 		console.log("FINAL EVALUATION");
-		expected = [];
-		predicted = [];
+		var accuracy = new cnnutil.Window(dataset.length);
+		
 		dataset.forEach(function(line){
 			var features = prepareVolume(line);
 
-			var predictObject = net.forward(features).w;
-			expected.push([line.target]);
-			predicted.push([predictObject[0]]);	
+			net.forward(features);
+			var yhat = net.getPrediction();
+			console.log(yhat)
+			var train_acc = yhat === line.target ? 1.0 : 0.0;
+			accuracy.add(train_acc);
 			
 		});
-		var md = meanDistance(expected, predicted);
-		var mp = meanPearson(expected, predicted);
-		console.log("meanDistance: ", md);
-		console.log("meanPearson: ", mp);
-
+		console.log('Training accuracy: ' + f2t(accuracy.get_average()))
 
 
 		console.log("Saving model");

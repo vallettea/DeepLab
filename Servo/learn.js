@@ -7,6 +7,7 @@ var path = require('path');
 var glob = require("glob");
 var csv = require('csv-parser');
 var convnetjs = require("convnetjs");
+var cnnutil = require("convnetjs/build/util");
 var lodash = require("lodash");
 var ubique = require("ubique");
 
@@ -20,36 +21,7 @@ var CATEGORICAL_FEATURES = ["motor", "screw"];
 var TARGET = "class";
 
 
-
-// error window
-var Window = function(size, minsize) {
-    this.v = [];
-    this.size = typeof(size)==='undefined' ? 100 : size;
-    this.minsize = typeof(minsize)==='undefined' ? 10 : minsize;
-    this.sum = 0;
-  }
-
-Window.prototype = {
-    add: function(x) {
-      this.v.push(x);
-      this.sum += x;
-      if(this.v.length>this.size) {
-        var xold = this.v.shift();
-        this.sum -= xold;
-      }
-    },
-    get_average: function() {
-      if(this.v.length < this.minsize) return -1;
-      else return this.sum/this.v.length;
-    },
-    reset: function(x) {
-      this.v = [];
-      this.sum = 0;
-    }
-}
-
-
-var lossWindow = new Window();
+var lossWindow = new cnnutil.Window(100);
 var lines = 0;
 var expected = [];
 var predicted = [];
